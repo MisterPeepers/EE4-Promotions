@@ -96,6 +96,10 @@ Class  EE_Promotions extends EE_Addon {
 		);
 		//register promotion specific statuses
 		add_filter( 'FHEE__EEM_Status__localized_status__translation_array', array( 'EE_Promotions', 'promotion_stati' ), 10 );
+
+		//add promotion codes shortcode to messages
+		add_filter( 'FHEE__EE_Shortcodes__shortcodes', array( 'EE_Promotions', 'register_new_shortcodes' ), 10, 2 );
+		add_filter( 'FHEE__EE_Shortcodes__parser_after', array( 'EE_Promotions', 'register_new_shortcode_parsers'), 10, 5 );
 	}
 
 
@@ -153,10 +157,75 @@ Class  EE_Promotions extends EE_Addon {
 
 
 
+	/**
+	 * Callback for FHEE__EE_Shortcodes__shortcodes
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param array         $shortcodes The existing shortcodes in this library
+	 * @param EE_Shortcodes $lib
+	 *
+	 * @return array          new array of shortcodes
+	 */
+	public static function register_new_shortcodes( $shortcodes, EE_Shortcodes $lib ) {
+		//shortcodes to add to EE_Ticket_Shortcodes
+		if ( $lib instanceof EE_Transaction_Shortcodes ) {
+			//Add shortcode to the add as the key, the value should be a description of the shortcode.
+			$shortcodes['[PROMO_CODES_USED]'] = _('This shortcode outputs any Promotion codes used during registration.');
+		}
+		//Return the shortcodes.
+		return $shortcodes;
+	}
 
 
-
-
+	/**
+	 * Call back for the FHEE__EE_Shortcodes__parser_after filter.
+	 * This contains the logic for parsing the new shortcodes introduced by this addon.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param string        $parsed       The current parsed template string.
+	 * @param string        $shortcode  The incoming shortcode being setup for parsing.
+	 * @param array|obj   $data           Depending on the shortcode parser the filter is called in, this will represent either an array of data objects or a specific data object.
+	 * @param array|obj   $extra_data Depending on the shortcode parser the filter is called in, this will either represent an array with an array of templates being parsed, and a EE_Addressee_Data object OR just an EE_Addresee_Data object.
+	 * @param EE_Shortcodes $lib
+	 *
+	 * @return string        The parsed string
+	 */
+	public static function register_new_shortcode_parsers( $parsed, $shortcode, $data, $extra_data, EE_Shortcodes $lib ) {
+		//only do this parsing on the EE_Transaction_Shortcodes parser
+		if ( $lib instanceof EE_Transaction_Shortcodes && $shortcode == '[PROMO_CODES_USED]' ) {
+			//Pull the transaction from the EE_Messages_Addressee object passed to parser.
+			$transaction = $data instanceof EE_Messages_Addressee ? $data->txn : NULL;
+			//Check we have an EE_Transaction object
+			if ( $transaction instanceof EE_Transaction ) {
+				//Pull in the promotion line items for this transaction
+				$promo_rows = EEM_Price::instance()->get_all_wpdb_results(
+						array(
+							array(
+								'Promotion.Line_Item.TXN_ID' => $transaction->ID()
+							)
+						));
+				//Setup an arrey to store all promo codes used on the transaction
+				$promo_codes = array();
+				//Loop through promo line items and build the promo_codes array using the Promocode name and code (if available)
+				foreach( $promo_rows as $promo_row ) {
+					if( $promo_row[ 'Promotion.PRO_code' ] ) {
+						$promo_codes[] = sprintf( '%1$s [%2$s]', $promo_row[ 'Price.PRC_name' ], $promo_row[ 'Promotion.PRO_code'] );
+					}else{
+						$promo_codes[] = $promo_row[ 'Price.PRC_name' ];
+					}
+				}
+				//Implode the promo_codes array into a comma-delimited string.
+				$promo_codes = implode(',', $promo_codes );	
+				//Return a single string or promo codes used.
+				return $promo_codes;
+			}
+		}
+		//If not within the correct section, or parsing the correct shortcode,
+		//Return the currently parsed content.
+		return $parsed;
+	}
 
 
 }
